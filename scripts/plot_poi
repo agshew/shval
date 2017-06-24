@@ -1,0 +1,43 @@
+#!/usr/bin/env Rscript
+
+argv <- commandArgs(TRUE)
+
+usage <- function() {
+	print("Usage: plot* <data>+")
+	quit()
+}
+
+if (length(argv) < 1) {
+	usage()
+}
+
+argv <- commandArgs(TRUE)
+
+library(ggplot2)
+
+hist <- read.table(argv[1], stringsAsFactors=FALSE)
+summary(hist)
+
+plot_1 = ggplot() +
+	geom_bar(data=hist, aes(x=as.factor(V1), y=V3), stat="identity") +
+	ggtitle(paste("Counts of Numbers in", argv[1])) +
+	xlab("Value") +
+	ylab("Count (log10)") +
+	scale_x_discrete(breaks=as.factor(hist$V1), labels=parse(text=hist$V2)) +
+	scale_y_log10() +
+	#theme with white background
+	theme_bw() +
+	#eliminates background, gridlines, and chart border
+	theme(
+	plot.background = element_blank()
+	,panel.grid.major = element_blank()
+	,panel.grid.minor = element_blank()
+	,panel.border = element_blank()
+	) +
+
+	#draws x and y axis line
+	theme(axis.line = element_line(color = 'black')) +
+
+	theme(axis.text.x = element_text(angle=0, hjust=0.5, vjust=0.5))
+
+ggsave(filename=paste(argv[1], ".png", sep=""), plot=plot_1, height=5, width=6)

@@ -70,6 +70,7 @@ TEST_TOOL_ROOTS := shval-null shval-native32 shval-native64 shval-trace
     # shval-posit16e2           # requires library
     # shval-posit32e3           # requires library
     # shval-native80            # only Pin 3.2
+    # shval-facts                 # only Pin 3.0
 
 # This defines the tests to be run that were not already defined in TEST_TOOL_ROOTS.
 TEST_ROOTS :=
@@ -138,6 +139,8 @@ $(OBJDIR)shval-range$(OBJ_SUFFIX): shval-range.cpp shval.cpp
 	$(CXX) $(TOOL_CXXFLAGS) --std=c++11 $(COMP_OBJ)$@ $<
 $(OBJDIR)shval-native80$(OBJ_SUFFIX): shval-native80.cpp shval.cpp
 	$(CXX) $(TOOL_CXXFLAGS) --std=c++11 -Wno-unused-variable $(COMP_OBJ)$@ $<
+$(OBJDIR)shval-facts$(OBJ_SUFFIX): shval-facts.cpp shval.cpp
+	$(CXX) $(TOOL_CXXFLAGS) --std=c++11 $(COMP_OBJ)$@ $<
 
 # the null type raises some compiler warnings that we can safely ignore
 $(OBJDIR)shval-null$(OBJ_SUFFIX): shval-null.cpp shval.cpp

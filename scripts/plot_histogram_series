@@ -1,0 +1,50 @@
+#!/usr/bin/env Rscript
+
+argv <- commandArgs(TRUE)
+
+usage <- function() {
+	print("Usage: plot* <data>+")
+	quit()
+}
+
+if (length(argv) < 1) {
+	usage()
+}
+
+argv <- commandArgs(TRUE)
+
+library(ggplot2)
+
+hist <- read.table(argv[1], header = TRUE)
+#colnames(hist) <- c("Time", "Left", "Value", "Value2", "Right", "Count")
+colnames(hist) <- c("Time", "Value", "Count")
+intervals <- c(paste("[", hist$Value, ", ", hist$Value[-1], ")" , sep=""))
+hist$intervals <- c(head(intervals, -1), paste("[", tail(hist$Value, 1), ", ", expression(infinity), ")", sep=""))
+summary(hist)
+
+plot_1 = ggplot(data=hist, aes(x=Time, y=as.factor(Value), fill=Count)) +
+	geom_tile(aes(width=1.0, height=1.0)) +
+	scale_fill_continuous(low="#F7FBFF", high="#2171B5") +
+	scale_y_discrete(breaks=as.factor(hist$Value), labels=hist$intervals) +
+	ggtitle(paste("Counts of Numbers over Time", argv[1])) +
+	xlab("Number of Samples (in 10e6)") +
+	ylab("Value") +
+	#theme with white background
+	theme_bw() +
+	#eliminates background, gridlines, and chart border
+	theme(
+	plot.background = element_blank()
+	,panel.grid.major = element_blank()
+	,panel.grid.minor = element_blank()
+	,panel.border = element_blank()
+	) +
+
+	#draws x and y axis line
+	theme(axis.line = element_line(color = 'black')) +
+
+	theme(axis.text.x = element_text(angle=0, hjust=0.5, vjust=0.5))
+
+pages <- length(unique(hist$intervals)) / 100
+h <- max(11, min(49, 11*pages))
+
+ggsave(filename=paste(argv[1], ".png", sep=""), plot=plot_1, height=h, width=8.5)

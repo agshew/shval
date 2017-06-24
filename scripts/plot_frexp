@@ -1,0 +1,82 @@
+#!/usr/bin/env Rscript
+
+argv <- commandArgs(TRUE)
+
+usage <- function() {
+	print("Usage: plot* <data>+")
+	quit()
+}
+
+if (length(argv) < 1) {
+	usage()
+}
+
+argv <- commandArgs(TRUE)
+
+library(ggplot2)
+
+d <- read.table(argv[1], stringsAsFactors=FALSE)
+hist <- na.omit(d)
+summary(hist)
+
+myBreaks <- function(x){
+	breaks <- c(	min(x),
+			quantile(x, c(0.10)),
+			quantile(x, c(0.20)),
+			quantile(x, c(0.30)),
+			quantile(x, c(0.40)),
+			quantile(x, c(0.50)),
+			quantile(x, c(0.60)),
+			quantile(x, c(0.70)),
+			quantile(x, c(0.80)),
+			quantile(x, c(0.90)),
+			max(x))
+	names(breaks) <- c(	paste(min(x)),
+				paste(quantile(x, c(0.10))),
+				paste(quantile(x, c(0.20))),
+				paste(quantile(x, c(0.30))),
+				paste(quantile(x, c(0.40))),
+				paste(quantile(x, c(0.50))),
+				paste(quantile(x, c(0.60))),
+				paste(quantile(x, c(0.70))),
+				paste(quantile(x, c(0.80))),
+				paste(quantile(x, c(0.90))),
+				paste(max(x)))
+	breaks
+}
+
+plot_hist <- function(name, xmin, xmax){
+	plot_1 = ggplot() +
+		geom_bar(data=hist, aes(x=V1, y=V2), stat="identity") +
+		ggtitle(paste("Counts of Numbers in", argv[1])) +
+		xlab("Value") +
+		ylab("Count (log10)") +
+		scale_x_continuous(breaks=myBreaks, limits=c(xmin, xmax), expand=c(0, 0)) +
+		scale_y_log10() +
+		#theme with white background
+		theme_bw() +
+		#eliminates background, gridlines, and chart border
+		theme(
+		plot.background = element_blank()
+		,panel.grid.major = element_blank()
+		,panel.grid.minor = element_blank()
+		,panel.border = element_blank()
+		) +
+	
+		#draws x and y axis line
+		theme(axis.line = element_line(color = 'black')) +
+	
+		theme(axis.text.x = element_text(angle=90, hjust=0.5, vjust=0.5))
+
+	ggsave(filename=paste(argv[1], "-", name, ".png", sep=""), plot=plot_1, height=5, width=11)
+}
+
+xmin <- min(hist$V1)
+xmax <- max(hist$V1)
+
+if (xmin >= -1 && xmax <= 1) {
+	plot_hist("negative", -1, -0.5)
+	plot_hist("positive", 0.5, 1)
+}
+
+plot_hist("all", xmin, xmax)
