@@ -40,23 +40,27 @@ using namespace std;
 #include <cfloat>
 
 KNOB<UINT32> KnobOpsPerStep(KNOB_MODE_WRITEONCE, "pintool",
-	"step", "10000000", "record stats every X operations (default=10000000)");
+	"step", "100000", "record stats every X operations (default=100000)");
 
 static UINT32 _ops_per_step;
 
-int ops = 0;
+UINT64 ops = 0;
 int exponent;
 
+FILE	*normalsOut,
+	*subnormalsOut,
+	*fractionsOut,
+	*exponentsOut,
+	*poiOut;
+
 map<double, size_t> normals, subnormals, fractions;
-map<double, size_t> normals_step, subnormals_step, fractions_step;
 map<double, size_t>::iterator dbl_bucket;
 
 map<int, size_t> exponents;
-map<int, size_t> exponents_step;
 map<int, size_t>::iterator exp_bucket;
 
 // The histogram of normals lacks bins for subnormals
-#define NORMAL_BINS 95
+#define NORMAL_BINS 97
 double normal_breaks[NORMAL_BINS] =
 {-DBL_MAX,
  -10000000000000000000000000.0,
@@ -104,9 +108,11 @@ double normal_breaks[NORMAL_BINS] =
  -2.384185791015625e-07,
  -1.1920928955078125e-07,
  -5.960464477539063e-08,
+ -2.9802322387695312e-08,
  -DBL_MIN,
  0.0,
  DBL_MIN,		/* smallest normal double, 2.22507e-308*/
+ 2.9802322387695312e-08,/* 1.0 / pow(2,25) */
  5.960464477539063e-08,	/* 1.0 / pow(2,24) */
  1.1920928955078125e-07,/* 1.0 / pow(2,23) */
  2.384185791015625e-07,	/* 1.0 / pow(2,22) */
@@ -136,7 +142,7 @@ double normal_breaks[NORMAL_BINS] =
  10000000.0,
  100000000.0,
  1000000000.0,
- 10000000000.0,
+ 10000000000.0,			/* 1e+10 */
  100000000000.0,
  1000000000000.0,
  10000000000000.0,
@@ -146,13 +152,13 @@ double normal_breaks[NORMAL_BINS] =
  100000000000000000.0,
  1000000000000000000.0,
  10000000000000000000.0,
- 100000000000000000000.0,
+ 100000000000000000000.0,	/* 1e+20 */
  1000000000000000000000.0,
  10000000000000000000000.0,
  100000000000000000000000.0,
  1000000000000000000000000.0,
- 10000000000000000000000000.0,
- DBL_MAX};		/* largest normal double, 1.79769e+308 */
+ 10000000000000000000000000.0,	/* 1e+25 */
+ DBL_MAX};			/* largest normal double, 1.79769e+308 */
 
 // The histogram of subnormals lacks bins for normals
 #define SUBNORMAL_BINS 35
@@ -401,7 +407,6 @@ double fraction_breaks[FRACTION_BINS] =
 // Points of Interest (POI)
 static map<double, const char*> poi_names;
 map<double, size_t> poi;
-map<double, size_t> poi_step;
 
 // POI not defined elsewhere
 #define ONE_THIRD 1.0 / 3.0
@@ -458,25 +463,8 @@ double poi_values[POI_BINS] =
  HUGE_VAL,
  INFINITY};
 
-void initialize_step_histograms()
+void clear_histograms()
 {
-    for (int i = 0; i < NORMAL_BINS; i++)
-        normals_step[normal_breaks[i]] = 0;
-
-    for (int i = 0; i < SUBNORMAL_BINS; i++)
-        subnormals_step[subnormal_breaks[i]] = 0;
-
-    for (int i = 0; i < FRACTION_BINS; i++)
-        fractions_step[fraction_breaks[i]] = 0;
-
-    exponents_step.clear();
-    poi_step.clear();
-}
-
-void initialize()
-{
-    initialize_step_histograms();
-
     for (int i = 0; i < NORMAL_BINS; i++)
         normals[normal_breaks[i]] = 0;
 
@@ -486,8 +474,48 @@ void initialize()
     for (int i = 0; i < FRACTION_BINS; i++)
         fractions[fraction_breaks[i]] = 0;
 
-    exponents.clear();
-    poi.clear();
+    for (int i = DBL_MIN_EXP; i < DBL_MAX_EXP; i++)
+        exponents[i] = 0;
+
+    for (int i = 0; i < POI_BINS; i++) {
+        poi[poi_values[i]] = 0;
+        poi[-poi_values[i]] = 0;
+    }
+}
+
+FILE* initialize_histogram_file(int pid, const char* name, FILE* histogramOut)
+{
+    char fileName[128];
+
+    sprintf(fileName, "%s-%d.dat", name, pid);
+    histogramOut = fopen(fileName, "a");
+    fprintf(histogramOut, "Ops Value Count\n");
+
+    return histogramOut;
+}
+
+FILE* initialize_poi_file(int pid, FILE* histogramOut)
+{
+    char fileName[128];
+
+    sprintf(fileName, "poi-%d.dat", pid);
+    histogramOut = fopen(fileName, "a");
+    fprintf(histogramOut, "Ops Value Name Count\n");
+
+    return histogramOut;
+}
+
+void initialize()
+{
+    int pid = getpid();
+
+    normalsOut = initialize_histogram_file(pid, "normals", normalsOut);
+    subnormalsOut = initialize_histogram_file(pid, "subnormals", subnormalsOut);
+    fractionsOut = initialize_histogram_file(pid, "fractions", fractionsOut);
+    exponentsOut = initialize_histogram_file(pid, "exponents", exponentsOut);
+    poiOut = initialize_poi_file(pid, poiOut);
+
+    clear_histograms();
 
     poi_names[0.0] = "0";
     poi_names[0.1] = "0.1";
@@ -544,126 +572,44 @@ bool isPOI(double num)
     return false;
 }
 
-void print_float_histogram(int ops, const char* name, map<double, size_t> &histogram)
+void print_float_histogram(UINT64 ops, FILE* histogramOut, map<double, size_t> &histogram)
 {
-    int pid;
-    FILE * histogramOut;
-    char fileName[128];
-
-    pid = getpid();
-
-    sprintf(fileName, "%s-%d-%d.dat", name, pid, ops);
-    histogramOut = fopen(fileName, "a");
     for(map<double, size_t>::const_iterator it = histogram.begin(); it != histogram.end(); ++it)
-        fprintf(histogramOut, "%g %lu\n", it->first, it->second);
-    fclose(histogramOut);
+        fprintf(histogramOut, "%lu %g %lu\n", ops, it->first, it->second);
 }
 
-void print_float_histogram_series(int ops, const char* name, map<double, size_t> &histogram)
+void print_int_histogram(UINT64 ops, FILE* histogramOut, map<int, size_t> &histogram)
 {
-    int pid;
-    FILE * histogramOut;
-    char fileName[128];
-    double step;
-
-    pid = getpid();
-    step = (double) ops / (double) _ops_per_step;
-
-    sprintf(fileName, "%s-%d-series.dat", name, pid);
-    histogramOut = fopen(fileName, "a");
-    for(map<double, size_t>::const_iterator it = histogram.begin(); it != histogram.end(); ++it)
-        fprintf(histogramOut, "%g %g %lu\n", step, it->first, it->second);
-    fclose(histogramOut);
-}
-
-void print_int_histogram(int ops, const char* name, map<int, size_t> &histogram)
-{
-    int pid;
-    FILE * histogramOut;
-    char fileName[128];
-
-    pid = getpid();
-
-    sprintf(fileName, "%s-%d-%d.dat", name, pid, ops);
-    histogramOut = fopen(fileName, "a");
     for(map<int, size_t>::const_iterator it = histogram.begin(); it != histogram.end(); ++it)
-        fprintf(histogramOut, "%d %lu\n", it->first, it->second);
-    fclose(histogramOut);
+        fprintf(histogramOut, "%lu %d %lu\n", ops, it->first, it->second);
 }
 
-void print_int_histogram_series(int ops, const char* name, map<int, size_t> &histogram)
+void print_poi(UINT64 ops, FILE* histogramOut, map<double, size_t> &histogram)
 {
-    int pid;
-    FILE * histogramOut;
-    char fileName[128];
-    double step;
-
-    pid = getpid();
-    step = (double) ops / (double) _ops_per_step;
-
-    sprintf(fileName, "%s-%d-series.dat", name, pid);
-    histogramOut = fopen(fileName, "a");
-    for(map<int, size_t>::const_iterator it = histogram.begin(); it != histogram.end(); ++it) {
-        fprintf(histogramOut, "%g %d %lu\n", step, it->first, it->second);
-    }
-    fclose(histogramOut);
-}
-
-void print_poi(int ops, const char* name, map<double, size_t> &histogram)
-{
-    int pid;
-    FILE * histogramOut;
-    char fileName[128];
-
-    pid = getpid();
-
-    sprintf(fileName, "%s-%d-%d.dat", name, pid, ops);
-    histogramOut = fopen(fileName, "a");
     for(map<double, size_t>::const_iterator it = histogram.begin(); it != histogram.end(); ++it)
         if (signbit(it->first) == 0)
-            fprintf(histogramOut, "%g \"%s\" %lu\n", it->first, poi_names[it->first], it->second);
+            fprintf(histogramOut, "%lu %g \"%s\" %lu\n", ops, it->first, poi_names[it->first], it->second);
         else
-            fprintf(histogramOut, "%g \"-%s\" %lu\n", it->first, poi_names[-it->first], it->second);
-    fclose(histogramOut);
+            fprintf(histogramOut, "%lu %g \"-%s\" %lu\n", ops, it->first, poi_names[-it->first], it->second);
 }
 
-void print_poi_series(int ops, const char* name, map<double, size_t> &histogram)
+void print_step(UINT64 ops)
 {
-    int pid;
-    FILE * histogramOut;
-    char fileName[128];
-    double step;
-
-    pid = getpid();
-    step = (double) ops / (double) _ops_per_step;
-
-    sprintf(fileName, "%s-%d-series.dat", name, pid);
-    histogramOut = fopen(fileName, "a");
-    for(map<double, size_t>::const_iterator it = histogram.begin(); it != histogram.end(); ++it)
-        if (signbit(it->first) == 0)
-            fprintf(histogramOut, "%g %g \"%s\" %lu\n", step, it->first, poi_names[it->first], it->second);
-        else
-            fprintf(histogramOut, "%g %g \"-%s\" %lu\n", step, it->first, poi_names[-it->first], it->second);
-    fclose(histogramOut);
+    print_float_histogram(ops, normalsOut, normals);
+    print_float_histogram(ops, subnormalsOut, subnormals);
+    print_float_histogram(ops, fractionsOut, fractions);
+    print_int_histogram(ops, exponentsOut, exponents);
+    print_poi(ops, poiOut, poi);
 }
 
-void print_step(int ops)
-{
-    print_float_histogram_series(ops, "normals", normals_step);
-    print_float_histogram_series(ops, "subnormals", subnormals_step);
-    print_float_histogram_series(ops, "fractions", fractions_step);
-    print_int_histogram_series(ops, "exponents", exponents_step);
-    print_poi_series(ops, "poi", poi_step);
-}
-
-void print_final(int ops)
+void finalize(UINT64 ops)
 {
     print_step(ops);
-    print_float_histogram(ops, "normals", normals);
-    print_float_histogram(ops, "subnormals", subnormals);
-    print_float_histogram(ops, "fractions", fractions);
-    print_int_histogram(ops, "exponents", exponents);
-    print_poi(ops, "poi", poi);
+    fclose(normalsOut);
+    fclose(subnormalsOut);
+    fclose(fractionsOut);
+    fclose(exponentsOut);
+    fclose(poiOut);
 }
 
 #define UPDATE(X)   ops++; \
@@ -671,15 +617,9 @@ void print_final(int ops)
                         case FP_NORMAL:    dbl_bucket = normals.lower_bound(X); \
                                            if (dbl_bucket != normals.end()) \
                                                dbl_bucket->second++; \
-                                           dbl_bucket = normals_step.lower_bound(X); \
-                                           if (dbl_bucket != normals_step.end()) \
-                                               dbl_bucket->second++; \
                                            break; \
                         case FP_SUBNORMAL: dbl_bucket = subnormals.lower_bound(X); \
                                            if (dbl_bucket != subnormals.end()) \
-                                               dbl_bucket->second++; \
-                                           dbl_bucket = subnormals_step.lower_bound(X); \
-                                           if (dbl_bucket != subnormals_step.end()) \
                                                dbl_bucket->second++; \
                                            break; \
                     } \
@@ -687,17 +627,10 @@ void print_final(int ops)
                     if (dbl_bucket != fractions.end()) \
                         dbl_bucket->second++; \
                     exponents[exponent]++; \
-                    dbl_bucket = fractions_step.lower_bound(frexp(X, &exponent)); \
-                    if (dbl_bucket != fractions_step.end()) \
-                        dbl_bucket->second++; \
-                    exponents_step[exponent]++; \
-                    if (isPOI(X)) { \
-                        poi[X]++; \
-                        poi_step[X]++; \
-                    } \
+                    if (isPOI(X)) poi[X]++; \
                     if (ops % _ops_per_step == 0) {\
                         print_step(ops); \
-                        initialize_step_histograms(); \
+                        clear_histograms(); \
                     }
 
 #define SH_TYPE         double
@@ -712,7 +645,7 @@ void print_final(int ops)
 #define SH_SET(V,X)     (V)=(X); UPDATE(X)
 #define SH_COPY(V,S)    (V)=(S); UPDATE(S)
 #define SH_OUTPUT(O,V)  O << fltstr(V,15); UPDATE(V)
-#define SH_FINI         print_final(ops);
+#define SH_FINI         finalize(ops);
 
 #define SH_PACKED_TYPE  double
 #define SH_PACK(P,V)    (P)=(V)
