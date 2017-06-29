@@ -3,7 +3,7 @@
 argv <- commandArgs(TRUE)
 
 usage <- function() {
-	print("Usage: plot* <data>+")
+	print("Usage: plot* <data>")
 	quit()
 }
 
@@ -15,16 +15,16 @@ argv <- commandArgs(TRUE)
 
 library(ggplot2)
 
-hist <- read.table(argv[1], stringsAsFactors=FALSE)
+d <- read.table(argv[1], header=TRUE, stringsAsFactors=FALSE)
+hist <- d[d$Count > 0, ]
 summary(hist)
 
 plot_1 = ggplot() +
-	geom_bar(data=hist, aes(x=as.factor(V1), y=V3), stat="identity") +
-	ggtitle(paste("Counts of Numbers in", argv[1])) +
+	geom_bar(data=hist, aes(x=as.factor(Value), y=Count, fill=Ops), stat="identity", position="stack") +
+	ggtitle(paste("Counts of Points of Interest in", argv[1])) +
 	xlab("Value") +
-	ylab("Count (log10)") +
-	scale_x_discrete(breaks=as.factor(hist$V1), labels=parse(text=hist$V2)) +
-	scale_y_log10() +
+	ylab("Count") +
+	scale_x_discrete(breaks=as.factor(hist$Value), labels=parse(text=hist$Name)) +
 	#theme with white background
 	theme_bw() +
 	#eliminates background, gridlines, and chart border
@@ -38,6 +38,6 @@ plot_1 = ggplot() +
 	#draws x and y axis line
 	theme(axis.line = element_line(color = 'black')) +
 
-	theme(axis.text.x = element_text(angle=0, hjust=0.5, vjust=0.5))
+	theme(axis.text.x = element_text(angle=90, hjust=0.5, vjust=0.5, size=6))
 
 ggsave(filename=paste(argv[1], ".png", sep=""), plot=plot_1, height=5, width=6)

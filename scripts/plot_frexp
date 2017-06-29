@@ -3,7 +3,7 @@
 argv <- commandArgs(TRUE)
 
 usage <- function() {
-	print("Usage: plot* <data>+")
+	print("Usage: plot* <data>")
 	quit()
 }
 
@@ -15,9 +15,8 @@ argv <- commandArgs(TRUE)
 
 library(ggplot2)
 
-d <- read.table(argv[1], stringsAsFactors=FALSE)
-hist <- na.omit(d)
-summary(hist)
+hist <- read.table(argv[1], header=TRUE, stringsAsFactors=FALSE)
+#summary(hist)
 
 myBreaks <- function(x){
 	breaks <- c(	min(x),
@@ -45,14 +44,13 @@ myBreaks <- function(x){
 	breaks
 }
 
-plot_hist <- function(name, xmin, xmax){
+plot_hist <- function(name, h, xmin, xmax, ysqrt=FALSE){
 	plot_1 = ggplot() +
-		geom_bar(data=hist, aes(x=V1, y=V2), stat="identity") +
+		geom_bar(data=h, aes(x=Value, y=Count, fill=Ops), stat="identity", position="stack") +
 		ggtitle(paste("Counts of Numbers in", argv[1])) +
 		xlab("Value") +
-		ylab("Count (log10)") +
-		scale_x_continuous(breaks=myBreaks, limits=c(xmin, xmax), expand=c(0, 0)) +
-		scale_y_log10() +
+		ylab("Count") +
+		scale_x_continuous(breaks=myBreaks, expand=c(0, 0), limits=c(xmin, xmax)) +
 		#theme with white background
 		theme_bw() +
 		#eliminates background, gridlines, and chart border
@@ -66,17 +64,31 @@ plot_hist <- function(name, xmin, xmax){
 		#draws x and y axis line
 		theme(axis.line = element_line(color = 'black')) +
 	
-		theme(axis.text.x = element_text(angle=90, hjust=0.5, vjust=0.5))
+		theme(axis.text.x = element_text(angle=90, hjust=0.5, vjust=0.5, size=6))
+
+	if (ysqrt == TRUE) {
+		plot_1 = plot_1 +
+			scale_y_sqrt() +
+			ylab("sqrt Count")
+		name <- paste(name, "-ysqrt", sep="")
+	}
 
 	ggsave(filename=paste(argv[1], "-", name, ".png", sep=""), plot=plot_1, height=5, width=11)
+	rm(plot_1)
 }
 
-xmin <- min(hist$V1)
-xmax <- max(hist$V1)
+xmin <- min(hist$Value)
+xmax <- max(hist$Value)
 
 if (xmin >= -1 && xmax <= 1) {
-	plot_hist("negative", -1, -0.5)
-	plot_hist("positive", 0.5, 1)
+	neg <- hist[ which(hist$Value >= -1 & hist$Value <= -0.5), ]
+	print(paste("negative", summary(neg)))
+	plot_hist("negative", neg, -1, -0.48)
+	pos <- hist[ which(hist$Value >= 0.5 & hist$Value <= 1), ]
+	print(paste("positive", summary(pos)))
+	plot_hist("positive", pos, 0.48, 1)
 }
 
-plot_hist("all", xmin, xmax)
+plot_hist("all", hist, xmin, xmax)
+
+plot_hist("all", hist, xmin, xmax, ysqrt=TRUE)
