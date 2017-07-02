@@ -19,9 +19,18 @@ d <- read.table(argv[1], header=TRUE, stringsAsFactors=FALSE)
 hist <- d[d$Count > 0, ]
 summary(hist)
 
+da <- aggregate(x = as.numeric(d$Count), by = list(d$Name), FUN=sum)
+colnames(da) <- c("Value", "Count")
+total <- sum(da$Count)
+da$Fraction <- da$Count / total
+da$Percent <- sprintf("%.9f", da$Fraction * 100)
+da <- da[da$Count > 0, ]
+da <- da[order(da$Count),]
+print(da, row.names=FALSE)
+
 plot_1 = ggplot() +
 	geom_bar(data=hist, aes(x=as.factor(Value), y=Count, fill=Ops), stat="identity", position="stack") +
-	ggtitle(paste("Counts of Points of Interest in", argv[1])) +
+	ggtitle(paste("Counts in", argv[1])) +
 	xlab("Value") +
 	ylab("Count") +
 	scale_x_discrete(breaks=as.factor(hist$Value), labels=parse(text=hist$Name)) +

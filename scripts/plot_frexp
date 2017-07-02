@@ -15,8 +15,23 @@ argv <- commandArgs(TRUE)
 
 library(ggplot2)
 
+# without data.table
 hist <- read.table(argv[1], header=TRUE, stringsAsFactors=FALSE)
+
+# data.table seems to have issues
+#library(data.table)
+#hist <- fread(argv[1], header=TRUE, stringsAsFactors=FALSE)
+
 #summary(hist)
+
+da <- aggregate(x = as.numeric(hist$Count), by = list(hist$Value), FUN=sum)
+colnames(da) <- c("Value", "Count")
+total <- sum(da$Count)
+da$Fraction <- da$Count / total
+da$Percent <- sprintf("%.9f", da$Fraction * 100)
+da <- da[da$Count > 0, ]
+da <- da[order(da$Count),]
+print(da, row.names=FALSE)
 
 myBreaks <- function(x){
 	breaks <- c(	min(x),
@@ -92,3 +107,12 @@ if (xmin >= -1 && xmax <= 1) {
 plot_hist("all", hist, xmin, xmax)
 
 plot_hist("all", hist, xmin, xmax, ysqrt=TRUE)
+
+nzhist <- hist[hist$Value != 0, ]
+plot_hist("nonzero", nzhist, xmin, xmax)
+
+nz1hist <- nzhist[nzhist$Value != 1, ]
+plot_hist("nonzero-one", nz1hist, xmin, xmax)
+
+nz1halfhist <- nz1hist[nz1hist$Value != 0.5, ]
+plot_hist("nonzero-one-half", nz1halfhist, xmin, xmax)

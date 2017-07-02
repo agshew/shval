@@ -13,14 +13,24 @@ if (length(argv) < 1) {
 
 argv <- commandArgs(TRUE)
 
+options(width=120)
 library(ggplot2)
 
 hist <- read.table(argv[1], header=TRUE, stringsAsFactors=FALSE)
 intervals <- c(paste("[", hist$Value, ", ", hist$Value[-1], ")" , sep=""))
 hist$Intervals <- c(head(intervals, -1), paste("[", tail(hist$Value, 1), ", ", expression(infinity), ")", sep=""))
-head(hist$Intervals)
-tail(hist$Intervals)
-summary(hist)
+#head(hist$Intervals)
+#tail(hist$Intervals)
+#summary(hist)
+
+da <- aggregate(x = as.numeric(hist$Count), by = list(hist$Intervals), FUN=sum)
+colnames(da) <- c("Intervals", "Count")
+total <- sum(da$Count)
+da$Fraction <- da$Count / total
+da$Percent <- sprintf("%.9f", da$Fraction * 100)
+da <- da[da$Count > 0, ]
+da <- da[order(da$Count),]
+print(da, row.names=FALSE)
 
 plot_1 = ggplot() +
 	geom_bar(data=hist, aes(x=as.factor(Value), y=Count, fill=Ops), stat="identity", position="stack") +

@@ -40,24 +40,26 @@ using namespace std;
 #include <cfloat>
 
 KNOB<UINT32> KnobOpsPerStep(KNOB_MODE_WRITEONCE, "pintool",
-	"step", "100000", "record stats every X operations (default=100000)");
+	"step", "1000000000", "record stats every X operations (default=1000000000)");
 
 static UINT32 _ops_per_step;
 
 UINT64 ops = 0;
 int exponent;
+int fpc;
 
 FILE	*normalsOut,
 	*subnormalsOut,
 	*fractionsOut,
 	*exponentsOut,
+	*fpclassOut,
 	*poiOut;
 
 map<double, size_t> normals, subnormals, fractions;
 map<double, size_t>::iterator dbl_bucket;
 
-map<int, size_t> exponents;
-map<int, size_t>::iterator exp_bucket;
+map<int, size_t> exponents, fpclass;
+map<int, size_t>::iterator int_bucket;
 
 // The histogram of normals lacks bins for subnormals
 #define NORMAL_BINS 97
@@ -477,6 +479,12 @@ void clear_histograms()
     for (int i = DBL_MIN_EXP; i < DBL_MAX_EXP; i++)
         exponents[i] = 0;
 
+    fpclass[FP_INFINITE] = 0;
+    fpclass[FP_NAN] = 0;
+    fpclass[FP_NORMAL] = 0;
+    fpclass[FP_SUBNORMAL] = 0;
+    fpclass[FP_ZERO] = 0;
+
     for (int i = 0; i < POI_BINS; i++) {
         poi[poi_values[i]] = 0;
         poi[-poi_values[i]] = 0;
@@ -494,11 +502,11 @@ FILE* initialize_histogram_file(int pid, const char* name, FILE* histogramOut)
     return histogramOut;
 }
 
-FILE* initialize_poi_file(int pid, FILE* histogramOut)
+FILE* initialize_labelled_histogram_file(int pid, const char* name, FILE* histogramOut)
 {
     char fileName[128];
 
-    sprintf(fileName, "poi-%d.dat", pid);
+    sprintf(fileName, "%s-%d.dat", name, pid);
     histogramOut = fopen(fileName, "a");
     fprintf(histogramOut, "Ops Value Name Count\n");
 
@@ -513,7 +521,8 @@ void initialize()
     subnormalsOut = initialize_histogram_file(pid, "subnormals", subnormalsOut);
     fractionsOut = initialize_histogram_file(pid, "fractions", fractionsOut);
     exponentsOut = initialize_histogram_file(pid, "exponents", exponentsOut);
-    poiOut = initialize_poi_file(pid, poiOut);
+    fpclassOut = initialize_labelled_histogram_file(pid, "fpclass", fpclassOut);
+    poiOut = initialize_labelled_histogram_file(pid, "poi", poiOut);
 
     clear_histograms();
 
@@ -584,6 +593,20 @@ void print_int_histogram(UINT64 ops, FILE* histogramOut, map<int, size_t> &histo
         fprintf(histogramOut, "%lu %d %lu\n", ops, it->first, it->second);
 }
 
+void print_fpclass(UINT64 ops, FILE* histogramOut, map<int, size_t> &histogram)
+{
+    for(map<int, size_t>::const_iterator it = histogram.begin(); it != histogram.end(); ++it) {
+	switch(it->first) {
+            case FP_INFINITE:   fprintf(histogramOut, "%lu %d \"%s\" %lu\n", ops, it->first, "inf", it->second); break;
+            case FP_NAN:        fprintf(histogramOut, "%lu %d \"%s\" %lu\n", ops, it->first, "NaN", it->second); break;
+            case FP_NORMAL:     fprintf(histogramOut, "%lu %d \"%s\" %lu\n", ops, it->first, "normal", it->second); break;
+            case FP_SUBNORMAL:  fprintf(histogramOut, "%lu %d \"%s\" %lu\n", ops, it->first, "subnormal", it->second); break;
+            case FP_ZERO:       fprintf(histogramOut, "%lu %d \"%s\" %lu\n", ops, it->first, "zero", it->second); break;
+            default:            fprintf(histogramOut, "%lu %d \"%s\" %lu\n", ops, it->first, "unknown", it->second); break;
+	}
+    }
+}
+
 void print_poi(UINT64 ops, FILE* histogramOut, map<double, size_t> &histogram)
 {
     for(map<double, size_t>::const_iterator it = histogram.begin(); it != histogram.end(); ++it)
@@ -599,6 +622,7 @@ void print_step(UINT64 ops)
     print_float_histogram(ops, subnormalsOut, subnormals);
     print_float_histogram(ops, fractionsOut, fractions);
     print_int_histogram(ops, exponentsOut, exponents);
+    print_fpclass(ops, fpclassOut, fpclass);
     print_poi(ops, poiOut, poi);
 }
 
@@ -609,11 +633,14 @@ void finalize(UINT64 ops)
     fclose(subnormalsOut);
     fclose(fractionsOut);
     fclose(exponentsOut);
+    fclose(fpclassOut);
     fclose(poiOut);
 }
 
 #define UPDATE(X)   ops++; \
-                    switch(fpclassify(X)) { \
+                    fpc = fpclassify(X); \
+                    fpclass[fpc]++; \
+                    switch(fpc) { \
                         case FP_NORMAL:    dbl_bucket = normals.lower_bound(X); \
                                            if (dbl_bucket != normals.end()) \
                                                dbl_bucket->second++; \
